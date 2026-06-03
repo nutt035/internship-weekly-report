@@ -1,0 +1,555 @@
+'use client';
+
+import {
+  useRef,
+  useState,
+  useEffect,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import SignatureCanvas from 'react-signature-canvas';
+import type { ApiResponse } from '../types';
+
+/* ========================================================================== */
+/*  Sub-components                                                            */
+/* ========================================================================== */
+
+function SectionCard({
+  num,
+  title,
+  delay = 0,
+  children,
+}: {
+  num: string;
+  title: string;
+  delay?: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="card animate-in" style={{ animationDelay: `${delay}ms` }}>
+      <div className="mb-5">
+        <span className="section-number">ส่วนที่ {num}</span>
+        <h2 className="section-title">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({
+  label,
+  error,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  error?: string;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="form-label">
+        {label}
+      </label>
+      {children}
+      {error && (
+        <p className="mt-1.5 text-xs" style={{ color: 'var(--error)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ========================================================================== */
+/*  Main Form                                                                 */
+/* ========================================================================== */
+
+export default function WeeklyReportForm() {
+  /* ----- §01 ข้อมูลทั่วไป ----- */
+  const [studentName, setStudentName] = useState('');
+  const [studentId, setStudentId] = useState('');
+  const [classRoom, setClassRoom] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [weekNumber, setWeekNumber] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  /* ----- §02 งานรายวัน (จันทร์–เสาร์) ----- */
+  const [taskMonday, setTaskMonday] = useState('');
+  const [taskTuesday, setTaskTuesday] = useState('');
+  const [taskWednesday, setTaskWednesday] = useState('');
+  const [taskThursday, setTaskThursday] = useState('');
+  const [taskFriday, setTaskFriday] = useState('');
+  const [taskSaturday, setTaskSaturday] = useState('');
+
+  /* ----- §03 สรุปผล ----- */
+  const [completedWork, setCompletedWork] = useState('');
+  const [learnings, setLearnings] = useState('');
+  const [problems, setProblems] = useState('');
+  const [solutions, setSolutions] = useState('');
+  const [weeklySummary, setWeeklySummary] = useState('');
+
+  /* ----- §04 รูปภาพ (3 ช่อง + คำอธิบาย) ----- */
+  const [image1, setImage1] = useState<File | null>(null);
+  const [image2, setImage2] = useState<File | null>(null);
+  const [image3, setImage3] = useState<File | null>(null);
+  const [preview1, setPreview1] = useState('');
+  const [preview2, setPreview2] = useState('');
+  const [preview3, setPreview3] = useState('');
+  const [imgDesc1, setImgDesc1] = useState('');
+  const [imgDesc2, setImgDesc2] = useState('');
+  const [imgDesc3, setImgDesc3] = useState('');
+
+  /* ----- §05 การรับรอง ----- */
+  const [supervisorComments, setSupervisorComments] = useState('');
+  const [supervisorName, setSupervisorName] = useState('');
+  const [supervisorPosition, setSupervisorPosition] = useState('');
+  const [signedDate, setSignedDate] = useState('');
+
+  /* ----- ลายเซ็น (วาด / พิมพ์) ----- */
+  const [sigMode, setSigMode] = useState<'draw' | 'text'>('draw');
+  const [sigText, setSigText] = useState('');
+  const sigRef = useRef<SignatureCanvas>(null);
+
+  /* ----- UI state ----- */
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<ApiResponse | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  /* ======================== Load/Save Local Storage ======================== */
+  
+  useEffect(() => {
+    const savedInfo = localStorage.getItem('personalInfo');
+    if (savedInfo) {
+      try {
+        const info = JSON.parse(savedInfo);
+        if (info.studentName) setStudentName(info.studentName);
+        if (info.studentId) setStudentId(info.studentId);
+        if (info.classRoom) setClassRoom(info.classRoom);
+        if (info.companyName) setCompanyName(info.companyName);
+      } catch (e) {
+        console.error('Failed to parse local storage', e);
+      }
+    }
+  }, []);
+
+  /* ======================== Image handlers ======================== */
+
+  const handleImageFile =
+    (
+      setFile: (f: File | null) => void,
+      setPreview: (s: string) => void,
+    ) =>
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0] ?? null;
+      if (!f) return;
+      setFile(f);
+      setPreview(URL.createObjectURL(f));
+    };
+
+  const removeImageSlot = (
+    preview: string,
+    setFile: (f: File | null) => void,
+    setPreview: (s: string) => void,
+  ) => {
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(null);
+    setPreview('');
+  };
+
+  const IMAGE_SLOTS = [
+    { num: 1, file: image1, preview: preview1, desc: imgDesc1, setFile: setImage1, setPreview: setPreview1, setDesc: setImgDesc1 },
+    { num: 2, file: image2, preview: preview2, desc: imgDesc2, setFile: setImage2, setPreview: setPreview2, setDesc: setImgDesc2 },
+    { num: 3, file: image3, preview: preview3, desc: imgDesc3, setFile: setImage3, setPreview: setPreview3, setDesc: setImgDesc3 },
+  ];
+
+  /* ======================== Validate ======================== */
+
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!studentName.trim()) e.studentName = 'กรุณากรอกชื่อนักศึกษา';
+    if (!studentId.trim()) e.studentId = 'กรุณากรอกรหัสนักศึกษา';
+    if (!classRoom.trim()) e.classRoom = 'กรุณากรอกระดับชั้น/ห้อง';
+    if (!weekNumber.trim()) e.weekNumber = 'กรุณากรอกสัปดาห์ที่';
+    if (!startDate) e.startDate = 'กรุณาเลือกวันที่เริ่มต้น';
+    if (!endDate) e.endDate = 'กรุณาเลือกวันที่สิ้นสุด';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  /* ======================== Submit ========================== */
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    // Save personal info to local storage
+    localStorage.setItem('personalInfo', JSON.stringify({
+      studentName,
+      studentId,
+      classRoom,
+      companyName,
+    }));
+
+    setIsSubmitting(true);
+    setResult(null);
+
+    try {
+      const fd = new FormData();
+
+      /* text fields */
+      fd.append('studentName', studentName);
+      fd.append('studentId', studentId);
+      fd.append('classRoom', classRoom);
+      fd.append('companyName', companyName);
+      fd.append('weekNumber', weekNumber);
+      fd.append('startDate', startDate);
+      fd.append('endDate', endDate);
+      fd.append('taskMonday', taskMonday);
+      fd.append('taskTuesday', taskTuesday);
+      fd.append('taskWednesday', taskWednesday);
+      fd.append('taskThursday', taskThursday);
+      fd.append('taskFriday', taskFriday);
+      fd.append('taskSaturday', taskSaturday);
+      fd.append('completedWork', completedWork);
+      fd.append('learnings', learnings);
+      fd.append('problems', problems);
+      fd.append('solutions', solutions);
+      fd.append('weeklySummary', weeklySummary);
+      fd.append('supervisorComments', supervisorComments);
+      fd.append('supervisorName', supervisorName);
+      fd.append('supervisorPosition', supervisorPosition);
+      fd.append('signedDate', signedDate);
+
+      /* images */
+      if (image1) fd.append('image_1', image1);
+      if (image2) fd.append('image_2', image2);
+      if (image3) fd.append('image_3', image3);
+      fd.append('imageDesc1', imgDesc1);
+      fd.append('imageDesc2', imgDesc2);
+      fd.append('imageDesc3', imgDesc3);
+
+      /* signature */
+      fd.append('signatureMode', sigMode);
+      if (sigMode === 'draw') {
+        let data = '';
+        if (sigRef.current && !sigRef.current.isEmpty()) {
+          const trimmedCanvas = sigRef.current.getTrimmedCanvas();
+          // สร้าง canvas สำรองเพื่อเปลี่ยนสีเส้นลายเซ็นเป็นสีดำสำหรับการนำไปวางบนกระดาษขาวใน Google Docs
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = trimmedCanvas.width;
+          tempCanvas.height = trimmedCanvas.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.drawImage(trimmedCanvas, 0, 0);
+            tempCtx.globalCompositeOperation = 'source-in';
+            tempCtx.fillStyle = '#000000'; // สีดำ
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+          }
+          data = tempCanvas.toDataURL('image/png');
+        }
+        fd.append('signatureImage', data);
+      } else {
+        fd.append('signatureText', sigText);
+      }
+
+      const res = await fetch('/api/weekly-report', { method: 'POST', body: fd });
+      const json: ApiResponse = await res.json();
+      setResult(json);
+    } catch {
+      setResult({
+        success: false,
+        error: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /* ======================== Reset ========================== */
+
+  const resetForm = () => {
+    // Keep personal info, reset the rest
+    setWeekNumber(''); setStartDate(''); setEndDate('');
+    setTaskMonday(''); setTaskTuesday(''); setTaskWednesday('');
+    setTaskThursday(''); setTaskFriday(''); setTaskSaturday('');
+    setCompletedWork(''); setLearnings(''); setProblems('');
+    setSolutions(''); setWeeklySummary('');
+    setSupervisorComments(''); setSupervisorName('');
+    setSupervisorPosition(''); setSignedDate('');
+    [preview1, preview2, preview3].forEach((p) => p && URL.revokeObjectURL(p));
+    setImage1(null); setImage2(null); setImage3(null);
+    setPreview1(''); setPreview2(''); setPreview3('');
+    setImgDesc1(''); setImgDesc2(''); setImgDesc3('');
+    sigRef.current?.clear();
+    setSigMode('draw'); setSigText('');
+    setResult(null); setErrors({});
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /* ======================== Day configs ======================== */
+
+  const DAYS = [
+    { label: 'วันจันทร์', value: taskMonday, set: setTaskMonday },
+    { label: 'วันอังคาร', value: taskTuesday, set: setTaskTuesday },
+    { label: 'วันพุธ', value: taskWednesday, set: setTaskWednesday },
+    { label: 'วันพฤหัสบดี', value: taskThursday, set: setTaskThursday },
+    { label: 'วันศุกร์', value: taskFriday, set: setTaskFriday },
+    { label: 'วันเสาร์ (ถ้ามี)', value: taskSaturday, set: setTaskSaturday },
+  ];
+
+  /* ======================== Render ========================== */
+
+  return (
+    <div className="relative z-10 mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:py-14">
+      {/* ==================== Header ==================== */}
+      <header className="animate-in mb-10 text-center" style={{ animationDelay: '0ms' }}>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>
+          แผนกวิชาเมคคาทรอนิกส์และหุ่นยนต์
+        </p>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          แบบรายงานสรุปผลการฝึกงานประจำสัปดาห์
+        </h1>
+        <p className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+          นักศึกษาฝึกงานทวิภาคี — กรอกข้อมูลแล้วกด
+          &quot;ส่งรายงาน&quot; เพื่อสร้าง Google Docs อัตโนมัติ
+        </p>
+      </header>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* =============== §01 ข้อมูลทั่วไป =============== */}
+        <SectionCard num="01" title="ข้อมูลทั่วไป" delay={60}>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <Field label="ชื่อ-นามสกุล นักศึกษา" htmlFor="studentName" error={errors.studentName}>
+              <input id="studentName" type="text" className={`form-input ${errors.studentName ? 'has-error' : ''}`}
+                placeholder="เช่น สมชาย ใจดี" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
+            </Field>
+            <Field label="รหัสนักศึกษา" htmlFor="studentId" error={errors.studentId}>
+              <input id="studentId" type="text" className={`form-input ${errors.studentId ? 'has-error' : ''}`}
+                placeholder="เช่น 66201" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
+            </Field>
+            <Field label="ระดับชั้น / ห้อง" htmlFor="classRoom" error={errors.classRoom}>
+              <input id="classRoom" type="text" className={`form-input ${errors.classRoom ? 'has-error' : ''}`}
+                placeholder="เช่น DVE 2/41" value={classRoom} onChange={(e) => setClassRoom(e.target.value)} />
+            </Field>
+            <Field label="สถานประกอบการ" htmlFor="companyName">
+              <input id="companyName" type="text" className="form-input"
+                placeholder="ชื่อบริษัท / หน่วยงาน" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+            </Field>
+            <Field label="สัปดาห์ที่" htmlFor="weekNumber" error={errors.weekNumber}>
+              <input id="weekNumber" type="number" min={1} className={`form-input ${errors.weekNumber ? 'has-error' : ''}`}
+                placeholder="เช่น 4" value={weekNumber} onChange={(e) => setWeekNumber(e.target.value)} />
+            </Field>
+            <Field label="วันที่เริ่มต้น" htmlFor="startDate" error={errors.startDate}>
+              <input id="startDate" type="date" className={`form-input ${errors.startDate ? 'has-error' : ''}`}
+                value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </Field>
+            <Field label="วันที่สิ้นสุด" htmlFor="endDate" error={errors.endDate}>
+              <input id="endDate" type="date" className={`form-input ${errors.endDate ? 'has-error' : ''}`}
+                value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </Field>
+          </div>
+        </SectionCard>
+
+        {/* =============== §02 งานรายวัน =============== */}
+        <SectionCard num="02" title="สรุปงานที่ได้รับมอบหมายในแต่ละวัน" delay={120}>
+          <div className="space-y-3">
+            {DAYS.map(({ label, value, set }) => (
+              <div key={label} className="task-card">
+                <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                  {label}
+                </span>
+                <textarea
+                  rows={2}
+                  className="form-input form-textarea mt-3"
+                  placeholder={`รายละเอียดงาน${label}...`}
+                  value={value}
+                  onChange={(e) => set(e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        {/* =============== §03 สรุปผล =============== */}
+        <SectionCard num="03" title="สรุปผลการดำเนินงาน" delay={180}>
+          <div className="space-y-5">
+            <Field label="งานที่ดำเนินการสำเร็จในสัปดาห์นี้" htmlFor="completedWork">
+              <textarea id="completedWork" rows={3} className="form-input form-textarea"
+                placeholder="สรุปงานที่ทำเสร็จ..." value={completedWork} onChange={(e) => setCompletedWork(e.target.value)} />
+            </Field>
+            <Field label="สิ่งที่ได้เรียนรู้และทักษะที่ได้รับ" htmlFor="learnings">
+              <textarea id="learnings" rows={3} className="form-input form-textarea"
+                placeholder="ทักษะหรือความรู้ใหม่..." value={learnings} onChange={(e) => setLearnings(e.target.value)} />
+            </Field>
+            <Field label="ปัญหาและอุปสรรคที่พบ" htmlFor="problems">
+              <textarea id="problems" rows={3} className="form-input form-textarea"
+                placeholder="ปัญหาที่เจอ..." value={problems} onChange={(e) => setProblems(e.target.value)} />
+            </Field>
+            <Field label="แนวทางการแก้ไข / วิธีการปรับปรุงแก้ไข" htmlFor="solutions">
+              <textarea id="solutions" rows={3} className="form-input form-textarea"
+                placeholder="แก้ไขอย่างไร..." value={solutions} onChange={(e) => setSolutions(e.target.value)} />
+            </Field>
+            <Field label="สรุปผลการฝึกงานประจำสัปดาห์ (ภาพรวม)" htmlFor="weeklySummary">
+              <textarea id="weeklySummary" rows={3} className="form-input form-textarea"
+                placeholder="ภาพรวมของสัปดาห์นี้..." value={weeklySummary} onChange={(e) => setWeeklySummary(e.target.value)} />
+            </Field>
+          </div>
+        </SectionCard>
+
+        {/* =============== §04 ภาพประกอบ =============== */}
+        <SectionCard num="04" title="ภาพประกอบการปฏิบัติงาน" delay={240}>
+          <div className="space-y-4">
+            {IMAGE_SLOTS.map(({ num, preview, desc, setFile, setPreview, setDesc }) => (
+              <div key={num} className="task-card">
+                <span className="section-number">รูปที่ {String(num).padStart(2, '0')}</span>
+
+                {preview ? (
+                  <div className="relative mt-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={preview} alt={`รูปที่ ${num}`} className="preview-thumb h-48 w-full object-cover" />
+                    <button type="button"
+                      onClick={() => removeImageSlot(preview, setFile, setPreview)}
+                      className="absolute right-2 top-2 btn-danger-sm">
+                      ลบ
+                    </button>
+                  </div>
+                ) : (
+                  <label className="upload-zone mt-3 block cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleImageFile(setFile, setPreview)} className="hidden" />
+                    <span className="block text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      คลิกเพื่อเลือกรูป
+                    </span>
+                  </label>
+                )}
+
+                <div className="mt-3">
+                  <Field label="คำอธิบายภาพ">
+                    <input type="text" className="form-input" placeholder="อธิบายสั้นๆ ว่ารูปนี้คืออะไร..."
+                      value={desc} onChange={(e) => setDesc(e.target.value)} />
+                  </Field>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        {/* =============== §05 การรับรอง =============== */}
+        <SectionCard num="05" title="การรับรองผลจากสถานประกอบการ" delay={300}>
+          <div className="space-y-5">
+            <Field label="ความคิดเห็นหรือข้อเสนอแนะจากพี่เลี้ยง / หัวหน้างาน" htmlFor="supervisorComments">
+              <textarea id="supervisorComments" rows={3} className="form-input form-textarea"
+                placeholder="ข้อเสนอแนะ (ถ้ามี)..." value={supervisorComments} onChange={(e) => setSupervisorComments(e.target.value)} />
+            </Field>
+
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <Field label="ชื่อผู้รับรอง" htmlFor="supervisorName">
+                <input id="supervisorName" type="text" className="form-input"
+                  placeholder="เช่น คุณสมศรี" value={supervisorName} onChange={(e) => setSupervisorName(e.target.value)} />
+              </Field>
+              <Field label="ตำแหน่ง" htmlFor="supervisorPosition">
+                <input id="supervisorPosition" type="text" className="form-input"
+                  placeholder="เช่น หัวหน้าแผนก" value={supervisorPosition} onChange={(e) => setSupervisorPosition(e.target.value)} />
+              </Field>
+            </div>
+
+            <Field label="วันที่ลงนาม" htmlFor="signedDate">
+              <input id="signedDate" type="date" className="form-input"
+                value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
+            </Field>
+
+            {/* ---------- Signature ---------- */}
+            <div>
+              <div className="mb-3 flex items-end justify-between">
+                <span className="form-label mb-0">ลายเซ็นผู้รับรอง</span>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setSigMode('draw')}
+                    className={sigMode === 'draw' ? 'btn-accent-sm' : 'btn-secondary'}>
+                    วาดลายเซ็น
+                  </button>
+                  <button type="button" onClick={() => setSigMode('text')}
+                    className={sigMode === 'text' ? 'btn-accent-sm' : 'btn-secondary'}>
+                    พิมพ์ข้อความ
+                  </button>
+                </div>
+              </div>
+
+              {sigMode === 'draw' ? (
+                <>
+                  <div className="sig-box">
+                    <SignatureCanvas
+                      ref={sigRef}
+                      penColor="#e8edf5"
+                      backgroundColor="transparent"
+                      canvasProps={{ className: 'touch-none w-full h-40' }}
+                    />
+                  </div>
+                  <button type="button" onClick={() => sigRef.current?.clear()} className="btn-secondary mt-3">
+                    ล้าง
+                  </button>
+                </>
+              ) : (
+                <input type="text" className="form-input"
+                  placeholder="พิมพ์ชื่อแทนลายเซ็น เช่น สมชาย ใจดี"
+                  value={sigText} onChange={(e) => setSigText(e.target.value)} />
+              )}
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* =============== Submit =============== */}
+        <div className="animate-in" style={{ animationDelay: '360ms' }}>
+          {/* Success */}
+          {result?.success && (
+            <div className="result-success mb-5">
+              <p className="text-lg font-semibold" style={{ color: 'var(--success)' }}>
+                ✓ ส่งรายงานสำเร็จ!
+              </p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                ส่งลิงก์นี้ให้อาจารย์นิเทศหรือเพื่อนได้เลย
+              </p>
+              {result.docUrl && (
+                <a href={result.docUrl} target="_blank" rel="noopener noreferrer"
+                  className="mt-4 inline-block rounded-md px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+                  style={{ background: 'var(--accent)' }}>
+                  เปิด Google Docs →
+                </a>
+              )}
+              <button type="button" onClick={resetForm}
+                className="mt-4 block w-full text-center text-sm underline"
+                style={{ color: 'var(--text-muted)' }}>
+                กรอกรายงานใหม่
+              </button>
+            </div>
+          )}
+
+          {/* Error */}
+          {result && !result.success && (
+            <div className="result-error mb-5">
+              <p className="text-sm font-medium" style={{ color: 'var(--error)' }}>
+                เกิดข้อผิดพลาด: {result.error}
+              </p>
+            </div>
+          )}
+
+          {/* Submit button */}
+          <button type="submit" disabled={isSubmitting} className="btn-primary">
+            {isSubmitting ? (
+              <>
+                <span className="spinner" />
+                กำลังสร้างเอกสาร...
+              </>
+            ) : result?.success ? (
+              'ส่งรายงานอีกครั้ง'
+            ) : (
+              'ส่งรายงาน'
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
