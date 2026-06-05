@@ -11,6 +11,9 @@ import {
 import SignatureCanvas from 'react-signature-canvas';
 import type { ApiResponse } from '../types';
 
+/* key เดียวสำหรับบันทึกแบบร่างทั้งหมดลง localStorage */
+const DRAFT_KEY = 'weeklyReportDraft';
+
 /* ========================================================================== */
 /*  Image compression helpers                                                 */
 /* ========================================================================== */
@@ -174,27 +177,78 @@ export default function WeeklyReportForm() {
   const [sigText, setSigText] = useState('');
   const sigRef = useRef<SignatureCanvas>(null);
 
+  /* ----- ตั้งค่าส่วนตัว (จำข้ามสัปดาห์) ----- */
+  const [internshipStartDate, setInternshipStartDate] = useState('');
+
   /* ----- UI state ----- */
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saveIndicator, setSaveIndicator] = useState(false);
 
   /* ======================== Load/Save Local Storage ======================== */
-  
+
+  // โหลดข้อมูลที่บันทึกไว้ทั้งหมดเมื่อเปิดหน้าครั้งแรก
   useEffect(() => {
-    const savedInfo = localStorage.getItem('personalInfo');
-    if (savedInfo) {
-      try {
-        const info = JSON.parse(savedInfo);
-        if (info.studentName) setStudentName(info.studentName);
-        if (info.studentId) setStudentId(info.studentId);
-        if (info.classRoom) setClassRoom(info.classRoom);
-        if (info.companyName) setCompanyName(info.companyName);
-      } catch (e) {
-        console.error('Failed to parse local storage', e);
-      }
-    }
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (!saved) return;
+      const d = JSON.parse(saved) as Record<string, string>;
+      if (d.studentName)         setStudentName(d.studentName);
+      if (d.studentId)           setStudentId(d.studentId);
+      if (d.classRoom)           setClassRoom(d.classRoom);
+      if (d.companyName)         setCompanyName(d.companyName);
+      if (d.internshipStartDate) setInternshipStartDate(d.internshipStartDate);
+      if (d.weekNumber)          setWeekNumber(d.weekNumber);
+      if (d.startDate)           setStartDate(d.startDate);
+      if (d.endDate)             setEndDate(d.endDate);
+      if (d.taskMonday)          setTaskMonday(d.taskMonday);
+      if (d.taskTuesday)         setTaskTuesday(d.taskTuesday);
+      if (d.taskWednesday)       setTaskWednesday(d.taskWednesday);
+      if (d.taskThursday)        setTaskThursday(d.taskThursday);
+      if (d.taskFriday)          setTaskFriday(d.taskFriday);
+      if (d.taskSaturday)        setTaskSaturday(d.taskSaturday);
+      if (d.completedWork)       setCompletedWork(d.completedWork);
+      if (d.learnings)           setLearnings(d.learnings);
+      if (d.problems)            setProblems(d.problems);
+      if (d.solutions)           setSolutions(d.solutions);
+      if (d.weeklySummary)       setWeeklySummary(d.weeklySummary);
+      if (d.supervisorComments)  setSupervisorComments(d.supervisorComments);
+      if (d.supervisorName)      setSupervisorName(d.supervisorName);
+      if (d.supervisorPosition)  setSupervisorPosition(d.supervisorPosition);
+      if (d.signedDate)          setSignedDate(d.signedDate);
+      if (d.imgDesc1)            setImgDesc1(d.imgDesc1);
+      if (d.imgDesc2)            setImgDesc2(d.imgDesc2);
+      if (d.imgDesc3)            setImgDesc3(d.imgDesc3);
+    } catch { /* parse ไม่ได้ก็ข้ามไป */ }
   }, []);
+
+  // บันทึกอัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง (debounce 800 ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          studentName, studentId, classRoom, companyName,
+          internshipStartDate,
+          weekNumber, startDate, endDate,
+          taskMonday, taskTuesday, taskWednesday, taskThursday, taskFriday, taskSaturday,
+          completedWork, learnings, problems, solutions, weeklySummary,
+          supervisorComments, supervisorName, supervisorPosition, signedDate,
+          imgDesc1, imgDesc2, imgDesc3,
+        }));
+        setSaveIndicator(true);
+        setTimeout(() => setSaveIndicator(false), 1500);
+      } catch { /* storage เต็ม? ข้ามไป */ }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [
+    studentName, studentId, classRoom, companyName, internshipStartDate,
+    weekNumber, startDate, endDate,
+    taskMonday, taskTuesday, taskWednesday, taskThursday, taskFriday, taskSaturday,
+    completedWork, learnings, problems, solutions, weeklySummary,
+    supervisorComments, supervisorName, supervisorPosition, signedDate,
+    imgDesc1, imgDesc2, imgDesc3,
+  ]);
 
   /* ======================== Image handlers ======================== */
 
@@ -240,19 +294,39 @@ export default function WeeklyReportForm() {
     return Object.keys(e).length === 0;
   };
 
+  /* ======================== กรอกสัปดาห์นี้อัตโนมัติ ======================== */
+
+  const fillThisWeek = () => {
+    const today = new Date();
+    const dow = today.getDay(); // 0 = อาทิตย์
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+    const saturday = new Date(monday);
+    saturday.setDate(monday.getDate() + 5);
+
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+    setStartDate(fmt(monday));
+    setEndDate(fmt(saturday));
+
+    if (internshipStartDate) {
+      // snap วันเริ่มฝึกงานไปวันจันทร์ของสัปดาห์นั้น
+      const start = new Date(internshipStartDate);
+      const startDow = start.getDay();
+      const startMonday = new Date(start);
+      startMonday.setDate(start.getDate() - (startDow === 0 ? 6 : startDow - 1));
+      const diffDays = Math.floor(
+        (monday.getTime() - startMonday.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      const week = Math.floor(diffDays / 7) + 1;
+      if (week >= 1) setWeekNumber(String(week));
+    }
+  };
+
   /* ======================== Submit ========================== */
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!validate()) return;
-
-    // Save personal info to local storage
-    localStorage.setItem('personalInfo', JSON.stringify({
-      studentName,
-      studentId,
-      classRoom,
-      companyName,
-    }));
 
     setIsSubmitting(true);
     setResult(null);
@@ -380,6 +454,13 @@ export default function WeeklyReportForm() {
           นักศึกษาฝึกงานทวิภาคี — กรอกข้อมูลแล้วกด
           &quot;ส่งรายงาน&quot; เพื่อสร้าง Google Docs อัตโนมัติ
         </p>
+        {/* ตัวบอกสถานะ auto-save */}
+        <p
+          className="mt-1.5 text-xs transition-opacity duration-700"
+          style={{ color: 'var(--success, #4ade80)', opacity: saveIndicator ? 1 : 0 }}
+        >
+          💾 บันทึกอัตโนมัติแล้ว
+        </p>
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -402,6 +483,43 @@ export default function WeeklyReportForm() {
               <input id="companyName" type="text" className="form-input"
                 placeholder="ชื่อบริษัท / หน่วยงาน" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
             </Field>
+
+            {/* ── ตั้งค่าครั้งเดียว → กรอกสัปดาห์อัตโนมัติ ── */}
+            <div className="sm:col-span-2">
+              <div className="task-card">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
+                  ⚡ ตั้งค่าครั้งเดียว — ระบบจะคำนวณสัปดาห์ให้อัตโนมัติ
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <label htmlFor="internshipStartDate" className="form-label">
+                      วันแรกที่เริ่มฝึกงาน
+                    </label>
+                    <input
+                      id="internshipStartDate"
+                      type="date"
+                      className="form-input"
+                      value={internshipStartDate}
+                      onChange={(e) => setInternshipStartDate(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fillThisWeek}
+                    className="btn-accent-sm shrink-0"
+                    style={{ padding: '10px 20px', fontSize: '0.875rem', fontWeight: 700 }}
+                  >
+                    🗓️ กรอกสัปดาห์นี้
+                  </button>
+                </div>
+                <p className="mt-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {internshipStartDate
+                    ? '✅ กดปุ่มด้านบนทุกสัปดาห์ — วันที่ + สัปดาห์ที่จะถูกกรอกให้อัตโนมัติ'
+                    : '💡 กรอกวันแรกที่เริ่มฝึกงาน แล้วกดปุ่ม — ระบบจะคำนวณวันที่และสัปดาห์ที่ให้เองทุกครั้ง'}
+                </p>
+              </div>
+            </div>
+
             <Field label="สัปดาห์ที่" htmlFor="weekNumber" error={errors.weekNumber}>
               <input id="weekNumber" type="number" min={1} className={`form-input ${errors.weekNumber ? 'has-error' : ''}`}
                 placeholder="เช่น 4" value={weekNumber} onChange={(e) => setWeekNumber(e.target.value)} />
