@@ -58,7 +58,15 @@ function compressImageFile(file: File, maxW = 1200, maxH = 1200, quality = 0.7):
       const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
       resolve(new File([blob], name, { type: 'image/jpeg' }));
     };
-    img.onerror = () => resolve(file); // fallback: send original
+    img.onerror = () => {
+      // แจ้งเตือนผู้ใช้แทนที่จะส่งไฟล์ต้นฉบับขนาดใหญ่ไปเงียบๆ
+      // (เกิดเมื่อ browser อ่านไฟล์ไม่ได้ เช่น .HEIC บน Chrome)
+      alert(
+        `ไม่สามารถย่อขนาดรูป "${file.name}" ได้\n` +
+        `Browser ไม่รองรับรูปฟอร์แมตนี้ กรุณาเลือกรูปใหม่เป็น JPEG หรือ PNG ครับ`,
+      );
+      resolve(file); // fallback: ส่งไฟล์ต้นฉบับ (อาจทำให้ upload ล้มเหลวถ้าไฟล์ใหญ่)
+    };
     img.src = url;
   });
 }
@@ -474,7 +482,13 @@ export default function WeeklyReportForm() {
                   </div>
                 ) : (
                   <label className="upload-zone mt-3 block cursor-pointer">
-                    <input type="file" accept="image/*" onChange={handleImageFile(setFile, setPreview)} className="hidden" />
+                    {/* จำกัดเฉพาะ JPEG/PNG/WebP — ทำให้ iOS แปลง HEIC → JPEG อัตโนมัติก่อนส่งให้ browser */}
+                <input
+                  type="file"
+                  accept="image/jpeg, image/jpg, image/png, image/webp"
+                  onChange={handleImageFile(setFile, setPreview)}
+                  className="hidden"
+                />
                     <span className="block text-sm" style={{ color: 'var(--text-secondary)' }}>
                       คลิกเพื่อเลือกรูป
                     </span>
