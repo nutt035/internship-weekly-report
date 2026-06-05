@@ -42,13 +42,30 @@ function compressToDataUrl(
 }
 
 /**
- * Reads a File, draws it into a canvas, and returns a compressed Blob
- * (JPEG, max 1200×1200, 70% quality) so large phone photos don't blow
- * up the FormData payload.
+ * Reads a File, converts from HEIC to JPEG if needed, draws it into a canvas,
+ * and returns a compressed Blob (JPEG, max 1200×1200, 70% quality)
  */
-function compressImageFile(file: File, maxW = 1200, maxH = 1200, quality = 0.7): Promise<File> {
+async function compressImageFile(file: File, maxW = 1200, maxH = 1200, quality = 0.7): Promise<File> {
+  let targetFile = file;
+
+  // แอบแปลง HEIC เป็น JPEG ก่อนเข้ากระบวนการวาด Canvas
+  if (file.name.toLowerCase().endsWith('.heic') || file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heif')) {
+    try {
+      const heic2any = (await import('heic2any')).default;
+      const convertedBlob = await heic2any({
+        blob: file,
+        toType: 'image/jpeg',
+        quality: quality,
+      });
+      const finalBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+      targetFile = new File([finalBlob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (err) {
+      console.warn('HEIC conversion failed:', err);
+    }
+  }
+
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(targetFile);
     const img = new Image();
     img.onload = () => {
       const dataUrl = compressToDataUrl(img, maxW, maxH, quality);
@@ -58,17 +75,17 @@ function compressImageFile(file: File, maxW = 1200, maxH = 1200, quality = 0.7):
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       const blob = new Blob([arr], { type: 'image/jpeg' });
-      const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+      const name = targetFile.name.replace(/\.[^.]+$/, '') + '.jpg';
       resolve(new File([blob], name, { type: 'image/jpeg' }));
     };
     img.onerror = () => {
       // แจ้งเตือนผู้ใช้แทนที่จะส่งไฟล์ต้นฉบับขนาดใหญ่ไปเงียบๆ
       // (เกิดเมื่อ browser อ่านไฟล์ไม่ได้ เช่น .HEIC บน Chrome)
       alert(
-        `ไม่สามารถย่อขนาดรูป "${file.name}" ได้\n` +
+        `ไม่สามารถย่อขนาดรูป "${targetFile.name}" ได้\n` +
         `Browser ไม่รองรับรูปฟอร์แมตนี้ กรุณาเลือกรูปใหม่เป็น JPEG หรือ PNG ครับ`,
       );
-      resolve(file); // fallback: ส่งไฟล์ต้นฉบับ (อาจทำให้ upload ล้มเหลวถ้าไฟล์ใหญ่)
+      resolve(targetFile); // fallback: ส่งไฟล์ต้นฉบับ (อาจทำให้ upload ล้มเหลวถ้าไฟล์ใหญ่)
     };
     img.src = url;
   });
@@ -600,10 +617,10 @@ export default function WeeklyReportForm() {
                   </div>
                 ) : (
                   <label className="upload-zone mt-3 block cursor-pointer">
-                    {/* จำกัดเฉพาะ JPEG/PNG/WebP — ทำให้ iOS แปลง HEIC → JPEG อัตโนมัติก่อนส่งให้ browser */}
+                    {/* รับรูปทุกประเภท เพื่อให้ JS หลังบ้านดักจับและแปลง HEIC ให้อัตโนมัติ (เพื่อนไม่ต้องตกใจ) */}
                 <input
                   type="file"
-                  accept="image/jpeg, image/jpg, image/png, image/webp"
+                  accept="image/*, .heic, .heif"
                   onChange={handleImageFile(setFile, setPreview)}
                   className="hidden"
                 />
