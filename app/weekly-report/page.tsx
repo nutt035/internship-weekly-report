@@ -12,6 +12,58 @@ import SignatureCanvas from 'react-signature-canvas';
 import type { ApiResponse } from '../types';
 
 /* ========================================================================== */
+/*  Image compression helpers                                                 */
+/* ========================================================================== */
+
+/**
+ * Draws a source image/canvas onto a new canvas capped at maxW×maxH,
+ * then returns a compressed JPEG data-URL at the requested quality.
+ */
+function compressToDataUrl(
+  source: HTMLCanvasElement | HTMLImageElement,
+  maxW: number,
+  maxH: number,
+  quality = 0.8,
+): string {
+  const srcW = source instanceof HTMLCanvasElement ? source.width : (source as HTMLImageElement).naturalWidth;
+  const srcH = source instanceof HTMLCanvasElement ? source.height : (source as HTMLImageElement).naturalHeight;
+  const ratio = Math.min(1, maxW / srcW, maxH / srcH);
+  const w = Math.round(srcW * ratio);
+  const h = Math.round(srcH * ratio);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(source, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+/**
+ * Reads a File, draws it into a canvas, and returns a compressed Blob
+ * (JPEG, max 1200×1200, 70% quality) so large phone photos don't blow
+ * up the FormData payload.
+ */
+function compressImageFile(file: File, maxW = 1200, maxH = 1200, quality = 0.7): Promise<File> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const dataUrl = compressToDataUrl(img, maxW, maxH, quality);
+      URL.revokeObjectURL(url);
+      const [, b64] = dataUrl.split(',');
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], { type: 'image/jpeg' });
+      const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+      resolve(new File([blob], name, { type: 'image/jpeg' }));
+    };
+    img.onerror = () => resolve(file); // fallback: send original
+    img.src = url;
+  });
+}
+
+/* ========================================================================== */
 /*  Sub-components                                                            */
 /* ========================================================================== */
 
@@ -224,13 +276,14 @@ export default function WeeklyReportForm() {
       fd.append('supervisorPosition', supervisorPosition);
       fd.append('signedDate', signedDate);
 
-      /* images */
-      if (image1) fd.append('image_1', image1);
-      if (image2) fd.append('image_2', image2);
-      if (image3) fd.append('image_3', image3);
       fd.append('imageDesc1', imgDesc1);
       fd.append('imageDesc2', imgDesc2);
       fd.append('imageDesc3', imgDesc3);
+
+      /* images — compress before upload to stay well under Vercel's body limit */
+      if (image1) fd.append('image_1', await compressImageFile(image1));
+      if (image2) fd.append('image_2', await compressImageFile(image2));
+      if (image3) fd.append('image_3', await compressImageFile(image3));
 
       /* signature */
       fd.append('signatureMode', sigMode);
@@ -249,7 +302,9 @@ export default function WeeklyReportForm() {
             tempCtx.fillStyle = '#000000'; // สีดำ
             tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
           }
-          data = tempCanvas.toDataURL('image/png');
+          // Compress the signature: downscale to max 600×200, JPEG 80%
+          // This shrinks a typical PNG signature from ~800 KB → ~30 KB
+          data = compressToDataUrl(tempCanvas, 600, 200, 0.8);
         }
         fd.append('signatureImage', data);
       } else {
