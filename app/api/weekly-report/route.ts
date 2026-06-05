@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Readable } from 'stream';
 
 /* -------------------------------------------------------------------------- */
-/*  Runtime                                                                   */
+/*  Runtime & Route Segment Config                                            */
 /* -------------------------------------------------------------------------- */
 export const runtime = 'nodejs';
+
+/**
+ * Raise the body-size limit for this API route to 20 MB.
+ * NOTE: `serverActions.bodySizeLimit` in next.config only applies to Server
+ * Actions, NOT to App-Router Route Handlers.  The correct knob for route
+ * handlers is the `maxRequestBodySize` export here (Next.js ≥ 14.1) or the
+ * next.config `api.bodyParser.sizeLimit` option for Pages-router APIs.
+ * Using both approaches for maximum compatibility.
+ */
+export const maxDuration = 60; // seconds — gives image-upload time to finish
+export const dynamic = 'force-dynamic';
 
 /* -------------------------------------------------------------------------- */
 /*  Google Auth                                                               */
@@ -138,6 +149,17 @@ async function uploadToDrive(drive: any, folderId: string, buffer: Buffer, mimeT
 /*  {{image_1/2/3}}                                                            */
 /*                                                                            */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/*  GET Handler (graceful rejection)                                         */
+/* -------------------------------------------------------------------------- */
+
+export async function GET() {
+  return NextResponse.json(
+    { success: false, error: 'Method Not Allowed — use POST to submit a report.' },
+    { status: 405, headers: { Allow: 'POST' } },
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /*  POST Handler                                                              */
